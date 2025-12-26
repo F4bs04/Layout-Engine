@@ -1,0 +1,5 @@
+{
+  "name": "AI Layout Engine",
+  "description": "Transforms raw text into structured, visual eBook slides using Gemini AI.",
+  "requestFramePermissions": []
+}
