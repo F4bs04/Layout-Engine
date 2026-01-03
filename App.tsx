@@ -11,8 +11,16 @@ import {
   ConclusionCTA, 
   FullImageQuote, 
   ThreeColumn, 
-  Timeline 
+  Timeline,
+  ComparisonTable,
+  FeatureList,
+  ProcessSteps,
+  TeamGrid,
+  PricingTable,
+  FAQSection,
+  LayoutPreview
 } from './components/LayoutComponents';
+import { chunkContent, generatePageByLayout } from './services/aiService';
 import { ImagePicker } from './components/ImagePicker';
 import { IconPicker } from './components/IconPicker';
 import { 
@@ -48,6 +56,7 @@ import {
 import * as mammoth from 'mammoth';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
+import { exportToPptx } from './services/exportService';
 
 // --- CONFIGURAÇÕES TÉCNICAS DE PÁGINA (PONTOS PDF) ---
 const ASPECT_RATIO_CONFIG: Record<AspectRatio, { 
@@ -101,6 +110,9 @@ const App: React.FC = () => {
   const [testingConnection, setTestingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [connectionMessage, setConnectionMessage] = useState('');
+  const [workflowStep, setWorkflowStep] = useState<'input' | 'selection' | 'result'>('input');
+  const [contentChunks, setContentChunks] = useState<Array<{ title: string, summary: string, content: string }>>([]);
+  const [selectedLayouts, setSelectedLayouts] = useState<Record<number, string>>({});
 
   const [selectedRatio, setSelectedRatio] = useState<AspectRatio>('A4');
   const [styleConfig, setStyleConfig] = useState<StyleConfig>({
@@ -216,11 +228,62 @@ const App: React.FC = () => {
         baseUrl: aiProvider === 'local' ? localAiUrl : undefined,
         model: selectedModel || undefined,
       };
-      const data = await generateEbookLayout(inputText, styleConfig, aiConfig);
-      setEbookData(data);
+      
+      const chunks = await chunkContent(inputText, aiConfig);
+      setContentChunks(chunks);
+      
+      // Pré-selecionar layouts sugeridos
+      const initialLayouts: Record<number, string> = {};
+      chunks.forEach((_, i) => {
+        if (i === 0) initialLayouts[i] = 'capa_principal';
+        else if (i === chunks.length - 1) initialLayouts[i] = 'conclusao_cta';
+        else initialLayouts[i] = 'texto_imagem_split';
+      });
+      setSelectedLayouts(initialLayouts);
+      setWorkflowStep('selection');
     } catch (err: any) {
-      setError("❌ Erro na geração: " + err.message);
-      console.error("Erro detalhado:", err);
+      setError("❌ Erro na análise: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFinalizeLayout = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const aiConfig: AIConfig = {
+        provider: aiProvider,
+        apiKey: aiProvider === 'gemini' ? geminiKey : aiProvider === 'openai' ? openaiKey : undefined,
+        baseUrl: aiProvider === 'local' ? localAiUrl : undefined,
+        model: selectedModel || undefined,
+      };
+
+      const pages: Page[] = [];
+      for (let i = 0; i < contentChunks.length; i++) {
+        setExportStatus(`Diagramando Seção ${i + 1} de ${contentChunks.length}...`);
+        const page = await generatePageByLayout(
+          contentChunks[i],
+          selectedLayouts[i],
+          styleConfig,
+          aiConfig
+        );
+        page.pagina_numero = i + 1;
+        pages.push(page);
+      }
+
+      setEbookData({
+        metadados: {
+          titulo_gerado: contentChunks[0].title,
+          estimativa_leitura_minutos: contentChunks.length,
+          paleta_sugerida: styleConfig.palette
+        },
+        paginas: pages
+      });
+      setWorkflowStep('result');
+      setCurrentPage(0);
+    } catch (err: any) {
+      setError("❌ Erro na diagramação: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -266,6 +329,114 @@ const App: React.FC = () => {
     }
   };
 
+  // Função para converter cor RGB string para array [r, g, b]
+  const parseColor = (colorStr: string): [number, number, number] => {
+    const rgb = colorStr.match(/\d+/g);
+    if (rgb && rgb.length >= 3) {
+      return [parseInt(rgb[0]), parseInt(rgb[1]), parseInt(rgb[2])];
+    }
+    return [0, 0, 0];
+  };
+
+  // Mapeamento de fontes CSS para fontes PDF
+  const mapFontFamily = (fontFamily: string): { family: string, style: string } => {
+    const lowerFont = fontFamily.toLowerCase();
+    
+    // Fontes serifadas
+    if (lowerFont.includes('playfair') || lowerFont.includes('serif') || lowerFont.includes('times')) {
+      return { family: 'times', style: 'normal' };
+    }
+    
+    // Fontes monoespaçadas
+    if (lowerFont.includes('mono') || lowerFont.includes('courier') || lowerFont.includes('code')) {
+      return { family: 'courier', style: 'normal' };
+    }
+    
+    // Padrão: sans-serif (helvetica)
+    return { family: 'helvetica', style: 'normal' };
+  };
+
+  // Técnica Canva/Gamma: Imagem de fundo + Camada de texto invisível
+  const exportPageToPDF = async (element: HTMLElement, doc: jsPDF, cfg: any) => {
+    const scale = cfg.width / cfg.renderWidth;
+    const parentRect = element.getBoundingClientRect();
+    const renderHeight = cfg.renderWidth * (cfg.height / cfg.width);
+
+    // PASSO 1: Captura a página inteira como imagem de alta qualidade
+    const pageCanvas = await html2canvas(element, {
+      scale: 3,
+      useCORS: true,
+      allowTaint: true,
+      logging: false,
+      backgroundColor: '#ffffff',
+      width: cfg.renderWidth,
+      height: renderHeight,
+      windowWidth: cfg.renderWidth,
+      windowHeight: renderHeight,
+      scrollX: 0,
+      scrollY: 0
+    });
+
+    const pageImage = pageCanvas.toDataURL('image/jpeg', 0.95);
+    doc.addImage(pageImage, 'JPEG', 0, 0, cfg.width, cfg.height, undefined, 'FAST');
+
+    // PASSO 2: Adiciona camadas de texto invisíveis
+    const textElements = element.querySelectorAll('h1, h2, h3, h4, h5, h6, p, span, a, button, label, li, td, th');
+    
+    for (const el of Array.from(textElements)) {
+      const textElement = el as HTMLElement;
+      
+      // Pega apenas elementos que têm texto direto (não apenas filhos)
+      const directText = Array.from(textElement.childNodes)
+        .filter(node => node.nodeType === Node.TEXT_NODE)
+        .map(node => node.textContent?.trim())
+        .filter(text => text && text.length > 0)
+        .join(' ');
+      
+      if (!directText) continue;
+
+      const rect = textElement.getBoundingClientRect();
+      const style = window.getComputedStyle(textElement);
+      
+      // Calcula posição relativa ao container pai
+      const x = (rect.left - parentRect.left) * scale;
+      const y = (rect.top - parentRect.top) * scale;
+      const width = rect.width * scale;
+      const fontSize = parseFloat(style.fontSize) * scale;
+      
+      // Mapeia família de fonte
+      const fontMap = mapFontFamily(style.fontFamily);
+      const fontWeight = style.fontWeight;
+      const fontStyle = (fontWeight === 'bold' || parseInt(fontWeight) >= 600) ? 'bold' : fontMap.style;
+      
+      // Configura fonte
+      doc.setFont(fontMap.family, fontStyle);
+      doc.setFontSize(fontSize);
+
+      // Texto invisível (opacidade 0 ou cor branca)
+      doc.setTextColor(255, 255, 255, 0);
+      
+      // Calcula baseline correto
+      const baselineOffset = fontSize * 0.82;
+      
+      try {
+        doc.text(directText, x, y + baselineOffset, {
+          maxWidth: width,
+          align: style.textAlign as 'left' | 'center' | 'right',
+          baseline: 'top'
+        });
+      } catch (e) {
+        try {
+          doc.text(directText, x, y + baselineOffset, {
+            maxWidth: width
+          });
+        } catch (err) {
+          // Ignora erros de texto
+        }
+      }
+    }
+  };
+
   const runExport = async () => {
     if (!ebookData || !exportBufferRef.current) return;
     
@@ -273,7 +444,7 @@ const App: React.FC = () => {
     setExporting(true);
     setExportFinished(false);
     setExportProgress(0);
-    setExportStatus("Iniciando Engine de Exportação...");
+    setExportStatus("Iniciando Engine de Exportação em Camadas...");
 
     const cfg = ASPECT_RATIO_CONFIG[selectedRatio];
     const doc = new jsPDF({
@@ -289,40 +460,23 @@ const App: React.FC = () => {
     try {
       for (let i = 0; i < ebookData.paginas.length; i++) {
         const pageIdx = i + 1;
-        setExportStatus(`Processando Página ${pageIdx} de ${ebookData.paginas.length}...`);
+        setExportStatus(`Processando Página ${pageIdx} de ${ebookData.paginas.length} (Extraindo Camadas)...`);
         setExportProgress(Math.round((i / ebookData.paginas.length) * 100));
 
         if (i > 0) doc.addPage([cfg.width, cfg.height], cfg.orientation);
 
         // Renderiza apenas a página atual no buffer
         setCurrentPage(i); 
-        await new Promise(r => setTimeout(r, 1200)); // Tempo para as animações e imagens carregarem
+        await new Promise(r => setTimeout(r, 1500)); // Tempo para as animações e imagens carregarem
 
         const element = buffer.querySelector('.active-slide') as HTMLElement;
         if (!element) throw new Error("Falha ao localizar slide no buffer");
 
-        // Calcula altura proporcional
-        const renderHeight = cfg.renderWidth * (cfg.height / cfg.width);
-
-        // Captura com html2canvas (mais confiável)
-        const canvas = await html2canvas(element, {
-          scale: 2,
-          useCORS: true,
-          allowTaint: true,
-          logging: false,
-          backgroundColor: '#ffffff',
-          width: cfg.renderWidth,
-          height: renderHeight,
-          windowWidth: cfg.renderWidth,
-          windowHeight: renderHeight
-        });
-
-        // Converte para imagem e adiciona ao PDF
-        const imgData = canvas.toDataURL('image/jpeg', 0.95);
-        doc.addImage(imgData, 'JPEG', 0, 0, cfg.width, cfg.height, undefined, 'FAST');
+        // Exporta página com fidelidade visual
+        await exportPageToPDF(element, doc, cfg);
       }
 
-      setExportStatus("Finalizando Documento...");
+      setExportStatus("Finalizando Documento em Camadas...");
       setExportProgress(100);
       setGeneratedPdf(doc);
       setExportFinished(true);
@@ -338,6 +492,25 @@ const App: React.FC = () => {
   const downloadPdf = () => {
     if (generatedPdf) {
       generatedPdf.save(`${ebookData?.metadados.titulo_gerado || 'ebook'}.pdf`);
+      setExporting(false);
+    }
+  };
+
+  const handleExportPptx = async () => {
+    if (!ebookData) return;
+    setExporting(true);
+    setExportFinished(false);
+    setExportProgress(0);
+    setExportStatus("Gerando Arquitetura para Google Slides...");
+    
+    try {
+      setExportProgress(30);
+      await exportToPptx(ebookData, styleConfig, selectedRatio);
+      setExportProgress(100);
+      setExportFinished(true);
+      setExportStatus("PPTX Gerado com Sucesso!");
+    } catch (err: any) {
+      setError("Erro ao exportar PPTX: " + err.message);
       setExporting(false);
     }
   };
@@ -376,6 +549,12 @@ const App: React.FC = () => {
             case 'full_image_quote': return <FullImageQuote {...props} />;
             case 'three_column': return <ThreeColumn {...props} />;
             case 'timeline': return <Timeline {...props} />;
+            case 'comparison_table': return <ComparisonTable {...props} />;
+            case 'feature_list': return <FeatureList {...props} />;
+            case 'process_steps': return <ProcessSteps {...props} />;
+            case 'team_grid': return <TeamGrid {...props} />;
+            case 'pricing_table': return <PricingTable {...props} />;
+            case 'faq_section': return <FAQSection {...props} />;
             default: return <div className="p-8">Layout {page.layout_type}</div>;
           }
         })()}
@@ -411,17 +590,24 @@ const App: React.FC = () => {
         <div className="fixed inset-0 z-[500] flex items-center justify-center p-6 bg-slate-900/80 backdrop-blur-sm">
           <div className="bg-white w-full max-w-lg rounded-[3rem] p-10 shadow-2xl animate-in zoom-in-95 border-8 border-white">
              <div className="flex justify-between items-center mb-8">
-                <h3 className="text-3xl font-black text-slate-900 tracking-tight">Exportar PDF</h3>
+                <h3 className="text-3xl font-black text-slate-900 tracking-tight">Exportar Projeto</h3>
                 <button onClick={() => setShowExportModal(false)} className="p-2 bg-slate-100 rounded-full"><X/></button>
              </div>
              <div className="bg-blue-50 p-6 rounded-3xl mb-8 flex items-center gap-4">
                 <div className="bg-blue-600 text-white p-4 rounded-2xl"><FileType size={32}/></div>
                 <div>
-                   <p className="font-bold text-slate-900">Modo Vetorial Master</p>
-                   <p className="text-xs text-slate-500">Texto aberto e editável. Alta fidelidade de página.</p>
+                   <p className="font-bold text-slate-900">Modo Arquitetura Master</p>
+                   <p className="text-xs text-slate-500">Escolha o formato ideal para sua necessidade.</p>
                 </div>
              </div>
-             <button onClick={runExport} className="w-full bg-slate-900 text-white py-6 rounded-[2rem] font-black text-xl hover:-translate-y-1 transition-all">Iniciar Processamento</button>
+             <div className="flex flex-col gap-4">
+                <button onClick={runExport} className="w-full bg-slate-900 text-white py-6 rounded-[2rem] font-black text-xl hover:-translate-y-1 transition-all flex items-center justify-center gap-3">
+                  <FileType size={24}/> Exportar PDF Master
+                </button>
+                <button onClick={handleExportPptx} className="w-full bg-blue-600 text-white py-6 rounded-[2rem] font-black text-xl hover:-translate-y-1 transition-all flex items-center justify-center gap-3">
+                  <Monitor size={24}/> Exportar para Google Slides
+                </button>
+             </div>
           </div>
         </div>
       )}
@@ -439,10 +625,19 @@ const App: React.FC = () => {
            ) : (
              <div className="text-center animate-in zoom-in">
                 <div className="w-24 h-24 bg-emerald-500 rounded-full flex items-center justify-center mx-auto mb-8 shadow-2xl shadow-emerald-500/40"><CheckCircle size={48}/></div>
-                <h2 className="text-5xl font-black mb-12">Ebook Pronto!</h2>
-                <div className="flex flex-col sm:flex-row gap-4">
-                   <button onClick={openPdf} className="bg-blue-600 px-10 py-5 rounded-3xl font-bold flex items-center gap-3 hover:bg-blue-700 transition-all"><ExternalLink/> Abrir em Nova Aba</button>
-                   <button onClick={downloadPdf} className="bg-white text-slate-900 px-10 py-5 rounded-3xl font-bold flex items-center gap-3 hover:bg-slate-100 transition-all"><Download/> Baixar PDF</button>
+                <h2 className="text-5xl font-black mb-12">{generatedPdf ? "Ebook Pronto!" : "Slides Prontos!"}</h2>
+                <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                   {generatedPdf ? (
+                     <>
+                       <button onClick={openPdf} className="bg-blue-600 px-10 py-5 rounded-3xl font-bold flex items-center gap-3 hover:bg-blue-700 transition-all"><ExternalLink/> Abrir em Nova Aba</button>
+                       <button onClick={downloadPdf} className="bg-white text-slate-900 px-10 py-5 rounded-3xl font-bold flex items-center gap-3 hover:bg-slate-100 transition-all"><Download/> Baixar PDF</button>
+                     </>
+                   ) : (
+                     <div className="bg-white/10 p-8 rounded-[2rem] border border-white/20 max-w-md">
+                       <p className="text-xl font-light mb-4 text-white/80">O arquivo <b>.pptx</b> foi gerado e o download deve ter iniciado automaticamente.</p>
+                       <p className="text-sm text-blue-400 font-bold uppercase tracking-widest">Dica: Importe este arquivo no Google Slides para edição total.</p>
+                     </div>
+                   )}
                 </div>
                 <button onClick={() => setExporting(false)} className="mt-12 text-white/30 hover:text-white transition-colors text-xs font-bold uppercase tracking-widest">Voltar ao Editor</button>
              </div>
@@ -578,7 +773,7 @@ const App: React.FC = () => {
 
       {/* Main UI */}
       <main className="max-w-7xl mx-auto p-6 py-12">
-        {!ebookData && !loading ? (
+        {workflowStep === 'input' && !loading ? (
           <div className="max-w-4xl mx-auto space-y-12 animate-in fade-in slide-in-from-bottom-12">
              <div className="text-center space-y-6">
                 <h2 className="text-7xl font-black text-slate-900 tracking-tighter leading-none">Design Inteligente.<br/>Páginas Reais.</h2>
@@ -595,7 +790,7 @@ const App: React.FC = () => {
                                <div className="flex items-center gap-3">
                                   {r === '16:9' ? <Monitor size={18}/> : r === '9:16' ? <Smartphone size={18}/> : <File size={18}/>}
                                   {r === 'A4' ? 'Documento A4' : r === '16:9' ? 'Apresentação 16:9' : 'Vertical 9:16'}
-                               </div>
+                                </div>
                                {selectedRatio === r && <CheckCircle size={18}/>}
                             </button>
                          ))}
@@ -621,17 +816,95 @@ const App: React.FC = () => {
                        </button>
                      </div>
                    )}
-                   <button onClick={handleGenerate} disabled={!inputText.trim()} className="mt-8 w-full bg-blue-600 hover:bg-blue-700 text-white py-8 rounded-[2rem] font-black text-3xl shadow-2xl disabled:opacity-30 hover:-translate-y-1 transition-all flex items-center justify-center gap-4"><Sparkles size={32}/> Gerar Ebook Master</button>
+                   <button onClick={handleGenerate} disabled={!inputText.trim()} className="mt-8 w-full bg-blue-600 hover:bg-blue-700 text-white py-8 rounded-[2rem] font-black text-3xl shadow-2xl disabled:opacity-30 hover:-translate-y-1 transition-all flex items-center justify-center gap-4"><Sparkles size={32}/> Analisar Conteúdo</button>
                 </div>
              </div>
+          </div>
+        ) : workflowStep === 'selection' && !loading ? (
+          <div className="max-w-6xl mx-auto space-y-10 animate-in fade-in zoom-in-95">
+             <div className="flex justify-between items-end">
+                <div>
+                   <h2 className="text-5xl font-black text-slate-900 tracking-tighter">Escolha os Layouts</h2>
+                   <p className="text-slate-500 font-bold uppercase tracking-widest text-xs mt-2">Personalize a diagramação de cada seção</p>
+                </div>
+                <button onClick={handleFinalizeLayout} className="bg-emerald-600 hover:bg-emerald-700 text-white px-12 py-6 rounded-[2rem] font-black text-2xl shadow-2xl hover:-translate-y-1 transition-all flex items-center gap-4">
+                   <CheckCircle size={28}/> Finalizar Diagramação
+                </button>
+             </div>
+             
+             <div className="grid grid-cols-1 gap-8">
+                {contentChunks.map((chunk, idx) => (
+                   <div key={idx} className="bg-white p-10 rounded-[3rem] shadow-xl border flex flex-col lg:flex-row gap-10 items-start group hover:border-blue-200 transition-all">
+                      <div className="flex flex-col items-center gap-4">
+                        <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center font-black text-2xl text-white shadow-lg shadow-blue-200">{idx + 1}</div>
+                        <div className="hidden lg:block w-px h-full bg-slate-100" />
+                      </div>
+                      
+                      <div className="flex-1 space-y-4">
+                         <div className="space-y-1">
+                            <h4 className="font-black text-2xl text-slate-900 tracking-tight">{chunk.title}</h4>
+                            <p className="text-slate-500 text-lg leading-relaxed">{chunk.summary}</p>
+                         </div>
+                         <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100">
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Conteúdo Original</p>
+                            <p className="text-slate-600 text-sm line-clamp-3 italic">"{chunk.content}"</p>
+                         </div>
+                      </div>
+
+                      <div className="w-full lg:w-80 space-y-6">
+                         <div className="space-y-3">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Visualização do Modelo</label>
+                            <LayoutPreview type={selectedLayouts[idx]} />
+                         </div>
+                         
+                         <div className="space-y-3">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Selecione o Layout</label>
+                            <select 
+                               value={selectedLayouts[idx]} 
+                               onChange={e => setSelectedLayouts({...selectedLayouts, [idx]: e.target.value})}
+                               className="w-full bg-white p-5 rounded-2xl border-2 border-slate-200 font-bold text-base outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all cursor-pointer appearance-none shadow-sm"
+                               style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 1.25rem center', backgroundSize: '1.5em' }}
+                            >
+                               <optgroup label="Capas">
+                                  <option value="capa_principal">Capa Principal</option>
+                                  <option value="capa_secao">Capa de Seção</option>
+                               </optgroup>
+                               <optgroup label="Conteúdo Base">
+                                  <option value="texto_imagem_split">Texto + Imagem (Split)</option>
+                                  <option value="grid_informativo">Grid de Informações</option>
+                                  <option value="three_column">Três Colunas</option>
+                               </optgroup>
+                               <optgroup label="Destaques & Dados">
+                                  <option value="destaque_numero">Destaque Numérico</option>
+                                  <option value="timeline">Linha do Tempo</option>
+                                  <option value="full_image_quote">Citação com Imagem</option>
+                               </optgroup>
+                               <optgroup label="Estruturas Avançadas">
+                                  <option value="comparison_table">Tabela Comparativa</option>
+                                  <option value="feature_list">Lista de Recursos</option>
+                                  <option value="process_steps">Etapas do Processo</option>
+                                  <option value="team_grid">Grade de Equipe</option>
+                                  <option value="pricing_table">Tabela de Preços</option>
+                                  <option value="faq_section">Seção de FAQ</option>
+                               </optgroup>
+                               <optgroup label="Finalização">
+                                  <option value="conclusao_cta">Conclusão & CTA</option>
+                               </optgroup>
+                            </select>
+                         </div>
+                      </div>
+                   </div>
+                ))}
+             </div>
+             <button onClick={() => setWorkflowStep('input')} className="text-slate-400 font-black uppercase tracking-widest text-xs hover:text-slate-600 transition-colors">← Voltar para o texto</button>
           </div>
         ) : loading ? (
           <div className="flex flex-col items-center justify-center min-h-[60vh]">
              <Loader2 size={80} className="animate-spin text-blue-600 mb-8" />
              <h3 className="text-4xl font-black text-slate-900 tracking-tight">IDLE Processando...</h3>
-             <p className="text-slate-400 font-bold uppercase tracking-[0.4em] mt-2">Diagramando Arquitetura de Informação</p>
+             <p className="text-slate-400 font-bold uppercase tracking-[0.4em] mt-2">{exportStatus || "Diagramando Arquitetura de Informação"}</p>
           </div>
-        ) : ebookData && (
+        ) : workflowStep === 'result' && ebookData && (
           <div className="flex flex-col xl:flex-row gap-12">
              <div className="flex-[3] flex flex-col items-center">
                 <div className={`bg-white shadow-[0_50px_100px_rgba(0,0,0,0.15)] rounded-[3rem] overflow-hidden relative border-[12px] border-white transition-all duration-500 
@@ -652,6 +925,7 @@ const App: React.FC = () => {
              <div className="flex-1 space-y-6">
                 <button onClick={() => setShowExportModal(true)} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-8 rounded-[2.5rem] font-black text-2xl shadow-xl flex items-center justify-center gap-4 transition-all hover:-translate-y-1"><FileType size={32}/> Exportar Master</button>
                 <button onClick={handleRegeneratePage} className="w-full bg-slate-900 hover:bg-slate-800 text-white py-6 rounded-3xl font-black flex items-center justify-center gap-4 shadow-lg transition-all"><Shuffle size={20}/> Remix Layout</button>
+                <button onClick={() => setWorkflowStep('selection')} className="w-full bg-white border-2 border-slate-200 text-slate-600 py-4 rounded-3xl font-black flex items-center justify-center gap-4 hover:bg-slate-50 transition-all text-sm uppercase tracking-widest"><Layers size={18}/> Alterar Layouts</button>
                 
                 <div className="bg-white p-6 rounded-[3rem] border shadow-sm max-h-[400px] overflow-y-auto space-y-2 custom-scrollbar">
                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 px-4 border-b pb-4">Estrutura de Páginas</p>

@@ -1,6 +1,12 @@
 import OpenAI from "openai";
 import { EbookData, StyleConfig, Page, AIConfig } from "../types";
 
+// Função para sanitizar JSON removendo caracteres de controle inválidos
+const sanitizeJSON = (jsonString: string): string => {
+  // Remove caracteres de controle (0x00-0x1F) exceto \n, \r, \t
+  return jsonString.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+};
+
 const SYSTEM_INSTRUCTION = (style: StyleConfig) => `
 Você é o "Instructional Design & Layout Engine" (IDLE) baseado em IA.
 Sua função é transformar textos brutos e densos em experiências de aprendizagem visualmente atraentes e pedagogicamente estruturadas.
@@ -97,7 +103,7 @@ export const generateWithOpenAI = async (
   const content = response.choices[0]?.message?.content;
   if (!content) throw new Error("Resposta vazia da OpenAI");
 
-  return JSON.parse(content) as EbookData;
+  return JSON.parse(sanitizeJSON(content)) as EbookData;
 };
 
 export const regeneratePageWithOpenAI = async (
@@ -124,7 +130,84 @@ export const regeneratePageWithOpenAI = async (
   const content = response.choices[0]?.message?.content;
   if (!content) throw new Error("Resposta vazia da OpenAI");
 
-  const newPage = JSON.parse(content) as Page;
+  const newPage = JSON.parse(sanitizeJSON(content)) as Page;
   newPage.pagina_numero = page.pagina_numero;
   return newPage;
+};
+
+export const chunkContentWithOpenAI = async (
+  rawText: string,
+  aiConfig: AIConfig
+): Promise<Array<{ title: string, summary: string, content: string }>> => {
+  const apiKey = aiConfig.apiKey || import.meta.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("Chave da API da OpenAI não configurada");
+
+  const openai = new OpenAI({ apiKey, dangerouslyAllowBrowser: true });
+  const model = aiConfig.model || "gpt-4o";
+
+  const prompt = `
+    Analise o texto abaixo e divida-o em seções lógicas para um ebook/apresentação.
+    Cada seção deve ter um título curto, um resumo do que será abordado e o conteúdo original adaptado para aquela seção.
+    
+    TEXTO:
+    ${rawText}
+    
+    Retorne APENAS um JSON no formato:
+    [
+      { "title": "Título da Seção", "summary": "Breve resumo", "content": "Conteúdo da seção" }
+    ]
+  `;
+
+  const response = await openai.chat.completions.create({
+    model,
+    messages: [{ role: "user", content: prompt }],
+    response_format: { type: "json_object" },
+    temperature: 0.3,
+  });
+
+  const content = response.choices[0]?.message?.content;
+  const data = JSON.parse(sanitizeJSON(content || '[]'));
+  return Array.isArray(data) ? data : (data.sections || data.chunks || []);
+};
+
+export const generatePageWithOpenAI = async (
+  section: { title: string, content: string },
+  layoutType: string,
+  styleConfig: StyleConfig,
+  aiConfig: AIConfig
+): Promise<Page> => {
+  const apiKey = aiConfig.apiKey || import.meta.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("Chave da API da OpenAI não configurada");
+
+  const openai = new OpenAI({ apiKey, dangerouslyAllowBrowser: true });
+  const model = aiConfig.model || "gpt-4o";
+
+  const prompt = `
+    Crie o conteúdo para um slide do tipo "${layoutType}" baseado no seguinte conteúdo:
+    
+    TÍTULO: ${section.title}
+    CONTEÚDO: ${section.content}
+    
+    Siga as instruções do sistema para preencher o objeto "conteudo" corretamente para este tipo de layout.
+  `;
+
+  const response = await openai.chat.completions.create({
+    model,
+    messages: [
+      { role: "system", content: SYSTEM_INSTRUCTION(styleConfig) },
+      { role: "user", content: prompt }
+    ],
+    response_format: { type: "json_object" },
+    temperature: 0.5,
+  });
+
+  const content = response.choices[0]?.message?.content;
+  const pageData = JSON.parse(sanitizeJSON(content || '{}'));
+  
+  if (pageData.paginas && pageData.paginas.length > 0) return pageData.paginas[0];
+  return {
+    pagina_numero: 0,
+    layout_type: layoutType as any,
+    conteudo: pageData.conteudo || pageData
+  };
 };

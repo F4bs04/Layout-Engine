@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { PageContent } from '../types';
-import { ArrowRight, Star, CheckCircle, Zap, Layout, Quote, Pencil, Image as ImageIcon, ImageOff } from 'lucide-react';
+import { ArrowRight, Star, CheckCircle, Zap, Layout, Quote, Pencil, Image as ImageIcon, ImageOff, Users, List, TrendingUp, DollarSign, HelpCircle as FAQIcon, ArrowRightCircle } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 
 type EditImageHandler = (field: 'main' | 'background' | 'item', index?: number) => void;
@@ -20,13 +20,15 @@ const EditableText = ({
   onSave, 
   className = "", 
   multiline = false,
-  tag: Tag = "div" as any
+  tag: Tag = "div" as any,
+  children
 }: { 
   value?: string, 
   onSave: (val: string) => void, 
   className?: string, 
   multiline?: boolean,
-  tag?: any
+  tag?: any,
+  children?: React.ReactNode
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [currentValue, setCurrentValue] = useState(value || "");
@@ -80,7 +82,7 @@ const EditableText = ({
       onClick={() => setIsEditing(true)}
       className={`cursor-text hover:bg-blue-500/10 hover:ring-2 hover:ring-blue-400 transition-all rounded px-1 -mx-1 group relative ${className}`}
     >
-      {currentValue || <span className="opacity-30 italic">Clique para editar...</span>}
+      {children || currentValue || <span className="opacity-30 italic">Clique para editar...</span>}
       <Pencil size={12} className="absolute -right-5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 pointer-events-none no-print text-blue-500" />
     </Tag>
   );
@@ -316,3 +318,350 @@ export const ConclusionCTA: React.FC<LayoutProps> = ({ content, onUpdate }) => (
     </button>
   </div>
 );
+
+export const ComparisonTable: React.FC<LayoutProps> = ({ content, onUpdate }) => {
+  const handleItemUpdate = (idx: number, field: string, value: string) => {
+    const newItems = [...(content.itens || [])];
+    newItems[idx] = { ...newItems[idx], [field]: value };
+    onUpdate?.({ itens: newItems });
+  };
+  return (
+    <div className="h-full flex flex-col p-12 md:p-20 bg-white animate-in fade-in duration-700">
+      <EditableText value={content.titulo} onSave={(v) => onUpdate?.({ titulo: v })} tag="h3" className="text-4xl font-black text-slate-900 mb-12 tracking-tight" />
+      <div className="flex-1 overflow-auto">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="bg-slate-50">
+              <th className="p-6 text-left border-b-2 border-slate-200 font-black text-slate-400 uppercase tracking-widest text-xs">Recurso</th>
+              <th className="p-6 text-left border-b-2 border-slate-200 font-black text-slate-400 uppercase tracking-widest text-xs">Descrição</th>
+            </tr>
+          </thead>
+          <tbody>
+            {content.itens?.map((item, idx) => (
+              <tr key={idx} className="hover:bg-blue-50/30 transition-colors">
+                <td className="p-6 border-b border-slate-100">
+                  <EditableText value={item.titulo_item} onSave={(v) => handleItemUpdate(idx, 'titulo_item', v)} className="font-bold text-slate-900" />
+                </td>
+                <td className="p-6 border-b border-slate-100">
+                  <EditableText value={item.desc_item} onSave={(v) => handleItemUpdate(idx, 'desc_item', v)} className="text-slate-500" />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+export const FeatureList: React.FC<LayoutProps> = ({ content, onEditIcon, onUpdate }) => {
+  const handleItemUpdate = (idx: number, field: string, value: string) => {
+    const newItems = [...(content.itens || [])];
+    newItems[idx] = { ...newItems[idx], [field]: value };
+    onUpdate?.({ itens: newItems });
+  };
+  return (
+    <div className="h-full flex flex-col p-12 md:p-20 bg-slate-50 animate-in slide-in-from-right duration-700">
+      <EditableText value={content.titulo} onSave={(v) => onUpdate?.({ titulo: v })} tag="h3" className="text-5xl font-black text-slate-900 mb-16 tracking-tighter" />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        {content.itens?.map((item, idx) => (
+          <div key={idx} className="flex items-start gap-6 p-8 bg-white rounded-3xl shadow-sm border border-slate-100 group hover:shadow-xl transition-all">
+            <button onClick={() => onEditIcon?.(idx)} className="p-4 bg-blue-50 text-blue-600 rounded-2xl group-hover:bg-blue-600 group-hover:text-white transition-all">
+              <DynamicIcon name={item.icon_name} size={28} />
+            </button>
+            <div>
+              <EditableText value={item.titulo_item} onSave={(v) => handleItemUpdate(idx, 'titulo_item', v)} tag="h4" className="text-xl font-bold text-slate-900 mb-2" />
+              <EditableText value={item.desc_item} onSave={(v) => handleItemUpdate(idx, 'desc_item', v)} multiline className="text-slate-500 leading-relaxed" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export const ProcessSteps: React.FC<LayoutProps> = ({ content, onUpdate }) => {
+  const handleStepUpdate = (idx: number, field: string, value: string) => {
+    const newSteps = [...(content.steps || [])];
+    newSteps[idx] = { ...newSteps[idx], [field]: value };
+    onUpdate?.({ steps: newSteps });
+  };
+  return (
+    <div className="h-full flex flex-col p-12 md:p-20 bg-white animate-in fade-in duration-700">
+      <EditableText value={content.titulo} onSave={(v) => onUpdate?.({ titulo: v })} tag="h3" className="text-4xl font-black text-slate-900 mb-20 text-center tracking-tight" />
+      <div className="flex flex-col md:flex-row justify-between items-start gap-10 relative">
+        <div className="hidden md:block absolute top-10 left-0 right-0 h-1 bg-slate-100 z-0"></div>
+        {content.steps?.map((step, idx) => (
+          <div key={idx} className="flex-1 flex flex-col items-center text-center relative z-10 group">
+            <div className="w-20 h-20 bg-blue-600 text-white rounded-full flex items-center justify-center text-3xl font-black mb-8 shadow-xl group-hover:scale-110 transition-transform">
+              {idx + 1}
+            </div>
+            <EditableText value={step.step_title} onSave={(v) => handleStepUpdate(idx, 'step_title', v)} tag="h4" className="text-xl font-bold text-slate-900 mb-4" />
+            <EditableText value={step.step_desc} onSave={(v) => handleStepUpdate(idx, 'step_desc', v)} multiline className="text-slate-500 text-sm leading-relaxed" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export const TeamGrid: React.FC<LayoutProps> = ({ content, onEditImage, onUpdate }) => {
+  const handleItemUpdate = (idx: number, field: string, value: string) => {
+    const newItems = [...(content.itens || [])];
+    newItems[idx] = { ...newItems[idx], [field]: value };
+    onUpdate?.({ itens: newItems });
+  };
+  return (
+    <div className="h-full flex flex-col p-12 md:p-20 bg-slate-900 text-white animate-in zoom-in duration-700">
+      <EditableText value={content.titulo} onSave={(v) => onUpdate?.({ titulo: v })} tag="h3" className="text-5xl font-black mb-16 text-center tracking-tighter" />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-10">
+        {content.itens?.map((item, idx) => (
+          <div key={idx} className="flex flex-col items-center group">
+            <div className="w-40 h-40 rounded-full overflow-hidden mb-6 border-4 border-white/10 group-hover:border-blue-500 transition-all relative">
+              <ImagePlaceholder prompt={item.titulo_item} customUrl={item.custom_image_url} className="h-full w-full" onEdit={() => onEditImage?.('item', idx)} />
+            </div>
+            <EditableText value={item.titulo_item} onSave={(v) => handleItemUpdate(idx, 'titulo_item', v)} tag="h4" className="text-xl font-bold mb-1" />
+            <EditableText value={item.desc_item} onSave={(v) => handleItemUpdate(idx, 'desc_item', v)} className="text-blue-400 text-sm font-black uppercase tracking-widest" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export const PricingTable: React.FC<LayoutProps> = ({ content, onUpdate }) => {
+  const handleItemUpdate = (idx: number, field: string, value: string) => {
+    const newItems = [...(content.itens || [])];
+    newItems[idx] = { ...newItems[idx], [field]: value };
+    onUpdate?.({ itens: newItems });
+  };
+  return (
+    <div className="h-full flex flex-col p-12 md:p-20 bg-blue-50 animate-in slide-in-from-bottom duration-700">
+      <EditableText value={content.titulo} onSave={(v) => onUpdate?.({ titulo: v })} tag="h3" className="text-4xl font-black text-slate-900 mb-16 text-center tracking-tight" />
+      <div className="flex flex-col md:flex-row gap-8 justify-center items-stretch">
+        {content.itens?.map((item, idx) => (
+          <div key={idx} className={`flex-1 max-w-sm p-10 rounded-[3rem] shadow-2xl flex flex-col ${idx === 1 ? 'bg-blue-600 text-white scale-105 z-10' : 'bg-white text-slate-900'}`}>
+            <EditableText value={item.titulo_item} onSave={(v) => handleItemUpdate(idx, 'titulo_item', v)} tag="h4" className="text-2xl font-black mb-4" />
+            <div className="text-5xl font-black mb-8 flex items-baseline gap-1">
+              <span className="text-2xl">$</span>
+              <EditableText value={item.desc_item.split('|')[0]} onSave={(v) => handleItemUpdate(idx, 'desc_item', v + '|' + item.desc_item.split('|')[1])} />
+              <span className="text-sm opacity-50">/mês</span>
+            </div>
+            <div className="flex-1 space-y-4 mb-10">
+              {item.desc_item.split('|')[1]?.split(',').map((feat, fidx) => (
+                <div key={fidx} className="flex items-center gap-3 text-sm opacity-80">
+                  <CheckCircle size={16} className={idx === 1 ? 'text-blue-200' : 'text-blue-600'} />
+                  {feat}
+                </div>
+              ))}
+            </div>
+            <button className={`w-full py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all ${idx === 1 ? 'bg-white text-blue-600 hover:bg-blue-50' : 'bg-slate-900 text-white hover:bg-slate-800'}`}>Selecionar</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export const FAQSection: React.FC<LayoutProps> = ({ content, onUpdate }) => {
+  const handleItemUpdate = (idx: number, field: string, value: string) => {
+    const newItems = [...(content.itens || [])];
+    newItems[idx] = { ...newItems[idx], [field]: value };
+    onUpdate?.({ itens: newItems });
+  };
+  return (
+    <div className="h-full flex flex-col p-12 md:p-20 bg-white animate-in fade-in duration-700 overflow-hidden">
+      <div className="flex items-center gap-6 mb-16">
+        <div className="p-6 bg-blue-600 text-white rounded-[2rem] shadow-xl"><FAQIcon size={48} /></div>
+        <EditableText value={content.titulo} onSave={(v) => onUpdate?.({ titulo: v })} tag="h3" className="text-5xl font-black text-slate-900 tracking-tighter" />
+      </div>
+      <div className="flex-1 space-y-6 overflow-y-auto pr-4 custom-scrollbar">
+        {content.itens?.map((item, idx) => (
+          <div key={idx} className="p-8 bg-slate-50 rounded-[2rem] border border-slate-100 group hover:bg-white hover:shadow-xl transition-all">
+            <EditableText value={item.titulo_item} onSave={(v) => handleItemUpdate(idx, 'titulo_item', v)} tag="h4" className="text-xl font-black text-slate-900 mb-4 flex items-center gap-3">
+              <span className="text-blue-600">Q.</span> {item.titulo_item}
+            </EditableText>
+            <EditableText value={item.desc_item} onSave={(v) => handleItemUpdate(idx, 'desc_item', v)} multiline className="text-slate-500 leading-relaxed pl-8 border-l-2 border-blue-200" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+export const LayoutPreview: React.FC<{ type: string }> = ({ type }) => {
+  const renderMini = () => {
+    switch (type) {
+      case 'capa_principal':
+        return (
+          <div className="flex flex-col items-center justify-center h-full p-4 space-y-2 bg-slate-50">
+            <div className="w-3/4 h-4 bg-blue-600 rounded" />
+            <div className="w-1/2 h-2 bg-slate-300 rounded" />
+            <div className="w-1/4 h-2 bg-slate-200 rounded mt-4" />
+          </div>
+        );
+      case 'capa_secao':
+        return (
+          <div className="flex flex-col items-center justify-center h-full p-4 space-y-2 bg-blue-600">
+            <div className="w-2/3 h-4 bg-white rounded" />
+            <div className="w-1/2 h-2 bg-blue-200 rounded" />
+          </div>
+        );
+      case 'texto_imagem_split':
+        return (
+          <div className="flex h-full bg-slate-50">
+            <div className="w-1/2 p-4 space-y-2">
+              <div className="w-full h-3 bg-slate-400 rounded" />
+              <div className="w-full h-2 bg-slate-200 rounded" />
+              <div className="w-full h-2 bg-slate-200 rounded" />
+            </div>
+            <div className="w-1/2 bg-slate-200 flex items-center justify-center">
+              <ImageIcon size={24} className="text-slate-400" />
+            </div>
+          </div>
+        );
+      case 'grid_informativo':
+        return (
+          <div className="grid grid-cols-2 gap-2 h-full p-4 bg-slate-50">
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} className="p-2 border border-slate-200 rounded bg-white space-y-1">
+                <div className="w-4 h-4 bg-blue-100 rounded" />
+                <div className="w-full h-1 bg-slate-300 rounded" />
+              </div>
+            ))}
+          </div>
+        );
+      case 'three_column':
+        return (
+          <div className="flex gap-2 h-full p-4 bg-slate-50">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="flex-1 space-y-2">
+                <div className="w-full aspect-video bg-slate-200 rounded" />
+                <div className="w-full h-2 bg-slate-400 rounded" />
+                <div className="w-full h-1 bg-slate-200 rounded" />
+              </div>
+            ))}
+          </div>
+        );
+      case 'destaque_numero':
+        return (
+          <div className="flex flex-col items-center justify-center h-full p-4 bg-slate-50">
+            <div className="text-4xl font-black text-blue-600">99%</div>
+            <div className="w-2/3 h-2 bg-slate-300 rounded mt-2" />
+          </div>
+        );
+      case 'timeline':
+        return (
+          <div className="flex flex-col h-full p-4 space-y-3 bg-slate-50">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded-full bg-blue-600 flex-shrink-0" />
+                <div className="w-full h-2 bg-slate-200 rounded" />
+              </div>
+            ))}
+          </div>
+        );
+      case 'full_image_quote':
+        return (
+          <div className="relative h-full bg-slate-800 flex items-center justify-center p-4">
+            <ImageIcon size={40} className="absolute inset-0 m-auto text-slate-700" />
+            <div className="relative z-10 w-full space-y-2">
+              <div className="w-full h-2 bg-white rounded opacity-50" />
+              <div className="w-2/3 h-2 bg-white rounded opacity-50 mx-auto" />
+            </div>
+          </div>
+        );
+      case 'comparison_table':
+        return (
+          <div className="flex flex-col h-full p-4 space-y-2 bg-slate-50">
+            <div className="flex gap-2">
+              <div className="flex-1 h-3 bg-slate-300 rounded" />
+              <div className="flex-1 h-3 bg-slate-300 rounded" />
+            </div>
+            {[1, 2, 3].map(i => (
+              <div key={i} className="flex gap-2 border-t border-slate-200 pt-1">
+                <div className="flex-1 h-2 bg-slate-100 rounded" />
+                <div className="flex-1 h-2 bg-slate-100 rounded" />
+              </div>
+            ))}
+          </div>
+        );
+      case 'feature_list':
+        return (
+          <div className="grid grid-cols-1 gap-2 h-full p-4 bg-slate-50 overflow-hidden">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="flex items-center gap-3 p-2 bg-white rounded border border-slate-100">
+                <div className="w-6 h-6 bg-blue-100 rounded flex-shrink-0" />
+                <div className="flex-1 space-y-1">
+                  <div className="w-1/2 h-2 bg-slate-400 rounded" />
+                  <div className="w-full h-1 bg-slate-200 rounded" />
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      case 'process_steps':
+        return (
+          <div className="flex items-center justify-center gap-2 h-full p-4 bg-slate-50">
+            {[1, 2, 3].map(i => (
+              <React.Fragment key={i}>
+                <div className="w-8 h-8 rounded-full bg-blue-600 flex-shrink-0" />
+                {i < 3 && <div className="w-4 h-0.5 bg-blue-200" />}
+              </React.Fragment>
+            ))}
+          </div>
+        );
+      case 'team_grid':
+        return (
+          <div className="grid grid-cols-3 gap-2 h-full p-4 bg-slate-900">
+            {[1, 2, 3, 4, 5, 6].map(i => (
+              <div key={i} className="flex flex-col items-center space-y-1">
+                <div className="w-8 h-8 rounded-full bg-slate-700" />
+                <div className="w-full h-1 bg-slate-600 rounded" />
+              </div>
+            ))}
+          </div>
+        );
+      case 'pricing_table':
+        return (
+          <div className="flex gap-2 h-full p-4 bg-slate-50">
+            {[1, 2, 3].map(i => (
+              <div key={i} className={`flex-1 p-2 rounded border ${i === 2 ? 'bg-blue-600 border-blue-600' : 'bg-white border-slate-200'} space-y-2`}>
+                <div className={`w-full h-2 rounded ${i === 2 ? 'bg-white' : 'bg-slate-300'}`} />
+                <div className={`w-1/2 h-4 rounded mx-auto ${i === 2 ? 'bg-blue-200' : 'bg-blue-100'}`} />
+                <div className="space-y-1">
+                  <div className={`w-full h-1 rounded ${i === 2 ? 'bg-blue-300' : 'bg-slate-100'}`} />
+                  <div className={`w-full h-1 rounded ${i === 2 ? 'bg-blue-300' : 'bg-slate-100'}`} />
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      case 'faq_section':
+        return (
+          <div className="flex flex-col h-full p-4 space-y-2 bg-slate-50">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="p-2 bg-white rounded border border-slate-200 space-y-1">
+                <div className="w-2/3 h-2 bg-slate-400 rounded" />
+                <div className="w-full h-1 bg-slate-100 rounded" />
+              </div>
+            ))}
+          </div>
+        );
+      case 'conclusao_cta':
+        return (
+          <div className="flex flex-col items-center justify-center h-full p-4 space-y-3 bg-emerald-50">
+            <div className="w-3/4 h-3 bg-slate-800 rounded" />
+            <div className="w-1/2 h-8 bg-emerald-600 rounded-full" />
+          </div>
+        );
+      default:
+        return <div className="flex items-center justify-center h-full bg-slate-100 text-[10px] text-slate-400">Preview</div>;
+    }
+  };
+
+  return (
+    <div className="w-full aspect-[4/3] rounded-xl overflow-hidden border-2 border-slate-100 shadow-inner group-hover:border-blue-200 transition-colors">
+      {renderMini()}
+    </div>
+  );
+};

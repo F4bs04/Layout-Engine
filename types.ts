@@ -8,7 +8,13 @@ export type LayoutType =
   | "conclusao_cta"
   | "full_image_quote"
   | "three_column"
-  | "timeline";
+  | "timeline"
+  | "comparison_table"
+  | "feature_list"
+  | "process_steps"
+  | "team_grid"
+  | "pricing_table"
+  | "faq_section";
 
 export type AspectRatio = "16:9" | "9:16" | "A4";
 
